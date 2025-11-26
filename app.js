@@ -64,99 +64,107 @@ function extractMetadata(content) {
 
 // posts 폴더의 모든 .md 파일을 자동으로 감지
 async function fetchPostsList() {
-    console.log('🔍 posts 폴더의 모든 .md 파일 스캔 중...');
-    
-    const detectedPosts = [];
-    const patterns = [];
-    
-    // 1. 모든 가능한 문자 조합 (a-z, 0-9, -, _)
-    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789-_';
-    
-    // 단일 문자 (a.md, b.md, ...)
-    for (let c of chars) {
-        patterns.push(`${c}.md`);
-    }
-    
-    // 2자 조합 (aa.md, ab.md, ...)
-    for (let c1 of 'abcdefghijklmnopqrstuvwxyz') {
-        for (let c2 of 'abcdefghijklmnopqrstuvwxyz0123456789') {
-            patterns.push(`${c1}${c2}.md`);
-        }
-    }
-    
-    // 3-20자 일반 단어 조합
-    const commonWords = [
-        'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
-        'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
-        'first', 'second', 'third', 'new', 'old', 'my', 'test', 'demo',
-        'hello', 'world', 'post', 'blog', 'article', 'story', 'note',
-        'about', 'contact', 'home', 'index', 'main', 'intro', 'welcome',
-        'guide', 'tutorial', 'how', 'what', 'why', 'when', 'where',
-        'javascript', 'python', 'java', 'cpp', 'csharp', 'go', 'rust',
-        'react', 'vue', 'angular', 'svelte', 'nodejs', 'typescript',
-        'web', 'dev', 'development', 'programming', 'coding', 'code',
-        'tips', 'tricks', 'hack', 'best', 'practice', 'example',
-        'github', 'pages', 'site', 'website', 'page',
-        'diary', 'journal', 'log', 'memo', 'draft', 'writing',
-        '2020', '2021', '2022', '2023', '2024', '2025'
-    ];
-    
-    // 단어 조합
-    commonWords.forEach(w1 => {
-        patterns.push(`${w1}.md`);
-        commonWords.forEach(w2 => {
-            patterns.push(`${w1}-${w2}.md`);
-            patterns.push(`${w1}_${w2}.md`);
-        });
-    });
-    
-    // 숫자 조합 (0-999)
-    for (let i = 0; i <= 999; i++) {
-        patterns.push(`${i}.md`);
-        patterns.push(`post${i}.md`);
-        patterns.push(`${String(i).padStart(3, '0')}.md`);
-    }
-    
-    // 날짜 형식 (2020-01-01 ~ 2025-12-31)
-    for (let year = 2020; year <= 2025; year++) {
-        for (let month = 1; month <= 12; month++) {
-            for (let day = 1; day <= 31; day++) {
-                const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                patterns.push(`${dateStr}.md`);
+    // 1) posts.json 우선 시도 (있으면 가장 정확)
+    try {
+        const resp = await fetch('posts.json');
+        if (resp.ok) {
+            const data = await resp.json();
+            if (Array.isArray(data.posts) && data.posts.length) {
+                return data.posts;
             }
         }
+    } catch (e) {
+        // ignore
     }
-    
-    console.log(`📋 ${patterns.length}개의 패턴으로 스캔 시작...`);
-    
-    // 병렬로 파일 존재 여부 확인 (배치 처리)
-    const batchSize = 100;
-    for (let i = 0; i < patterns.length; i += batchSize) {
-        const batch = patterns.slice(i, i + batchSize);
-        const checks = batch.map(async (filename) => {
+
+    // 2) GitHub Pages에 배포된 경우: GitHub REST API로 레포지토리의 posts 폴더 내용을 조회
+    //    이 방법은 별도 빌드 없이도 깃허브 저장소의 posts 파일 목록을 가져올 수 있습니다.
+    try {
+        if (location.protocol === 'file:') {
+            // 로컬 파일 시스템에서는 불가능
+            console.warn('로컬 파일 시스템(file://)에서는 자동 감지가 제한됩니다. posts.json을 생성하세요.');
+            return [];
+        }
+
+        const host = window.location.hostname.toLowerCase();
+        const pathname = window.location.pathname.replace(/^\//, '').replace(/\/$/, '');
+
+        const candidates = [];
+
+        // username.github.io 또는 username.github.io/repo
+        if (host.endsWith('.github.io')) {
+            const owner = host.split('.github.io')[0];
+            if (pathname) {
+                // likely project page: owner.github.io/repo
+                const repo = pathname.split('/')[0];
+                candidates.push({ owner, repo });
+            }
+            // user site repo name is `${owner}.github.io`
+            candidates.push({ owner, repo: `${owner}.github.io` });
+        }
+
+        // If path looks like /owner/repo/ (rare on pages), add it
+        const pathParts = pathname.split('/').filter(Boolean);
+        if (pathParts.length >= 2) {
+            candidates.push({ owner: pathParts[0], repo: pathParts[1] });
+        }
+
+        // As a final guess, try using first path segment as repo and host without github.io as owner
+        if (!host.endsWith('.github.io') && pathParts.length > 0) {
+            const ownerGuess = host.split('.')[0];
+            candidates.push({ owner: ownerGuess, repo: pathParts[0] });
+        }
+
+        // De-duplicate
+        const uniq = [];
+        for (const c of candidates) {
+            const key = `${c.owner}/${c.repo}`;
+            if (!uniq.find(u => u.owner === c.owner && u.repo === c.repo)) uniq.push(c);
+        }
+
+        for (const c of uniq) {
             try {
-                const response = await fetch(`posts/${filename}`, { method: 'HEAD' });
-                return response.ok ? filename : null;
-            } catch {
-                return null;
+                const apiUrl = `https://api.github.com/repos/${c.owner}/${c.repo}/contents/posts`;
+                const r = await fetch(apiUrl);
+                if (!r.ok) continue;
+                const items = await r.json();
+                if (Array.isArray(items)) {
+                    const mdFiles = items
+                        .filter(it => it.type === 'file' && it.name.toLowerCase().endsWith('.md'))
+                        .map(it => it.name);
+                    if (mdFiles.length) {
+                        console.log(`GitHub API로 ${c.owner}/${c.repo}의 posts 폴더에서 ${mdFiles.length}개 감지`);
+                        return mdFiles.sort().reverse();
+                    }
+                }
+            } catch (e) {
+                // continue to next candidate
             }
-        });
-        
-        const results = await Promise.all(checks);
-        results.forEach(file => {
-            if (file && !detectedPosts.includes(file)) {
-                detectedPosts.push(file);
-                console.log(`✅ 발견: ${file}`);
+        }
+    } catch (e) {
+        // ignore and fall through to HTML fallback
+    }
+
+    // 3) Fallback: posts/ 경로를 fetch해서 반환되는 HTML에서 .md 링크를 추출 (posts/index.html이 있는 경우)
+    try {
+        const resp = await fetch('posts/');
+        if (resp.ok) {
+            const text = await resp.text();
+            // find hrefs ending with .md
+            const hrefs = Array.from(text.matchAll(/href\s*=\s*"([^"']+\.md)"/gi), m => m[1]);
+            const names = hrefs
+                .map(h => h.replace(/^.*\//, ''))
+                .filter((v, i, a) => v && a.indexOf(v) === i);
+            if (names.length) {
+                console.log(`posts/index.html에서 ${names.length}개 감지`);
+                return names.sort().reverse();
             }
-        });
+        }
+    } catch (e) {
+        // ignore
     }
-    
-    if (detectedPosts.length > 0) {
-        console.log(`\n🎉 총 ${detectedPosts.length}개의 .md 파일을 감지했습니다!`);
-        return detectedPosts.sort().reverse();
-    }
-    
-    console.warn('❌ .md 파일을 찾을 수 없습니다.');
+
+    console.warn('자동 감지 실패: posts.json을 생성하거나 GitHub Pages에 배포하세요.');
     return [];
 }
 
