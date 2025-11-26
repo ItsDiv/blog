@@ -54,7 +54,7 @@ git push -u origin main
 
 5. 몇 분 후 `https://your-username.github.io/your-repo`에서 블로그를 확인할 수 있습니다!
 
-## 📝 새 포스트 추가하기
+## 📝 새 포스트 추가하기 (자동 감지)
 
 1. `posts` 폴더에 `.md` 파일을 생성합니다.
 
@@ -65,26 +65,31 @@ git push -u origin main
 2025-03-20
 
 여기에 내용을 작성하세요...
-
-## 부제목
-
-- 리스트 항목
-- 또 다른 항목
 ```
 
-3. `posts.json` 파일을 업데이트하여 새 파일을 추가합니다:
-```json
-{
-  "posts": [
-    "first-post.md",
-    "github-pages-guide.md",
-    "web-dev-tips.md",
-    "your-new-post.md"
-  ]
-}
-```
+3. **자동으로 감지시키기:**
 
-4. 변경사항을 커밋하고 푸시합니다:
+   **방법 1: Node.js (추천)**
+   ```bash
+   npm run generate
+   ```
+   
+   또는 파일 변경 감지 (자동 재생성):
+   ```bash
+   npm install
+   npm run watch
+   ```
+
+   **방법 2: PowerShell**
+   ```powershell
+   .\generate-posts.ps1
+   ```
+
+   **방법 3: GitHub Actions (완전 자동)**
+   - posts 폴더에 파일 추가/수정하고 push
+   - GitHub Actions가 자동으로 posts.json 생성
+
+4. 변경사항을 커밋하고 푸시:
 ```bash
 git add .
 git commit -m "Add new post"
