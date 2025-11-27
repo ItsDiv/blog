@@ -70,7 +70,11 @@ async function fetchPostsList() {
         if (resp.ok) {
             const data = await resp.json();
             if (Array.isArray(data.posts) && data.posts.length) {
-                return data.posts;
+                // normalize to objects with name + url
+                return data.posts.map(p => {
+                    if (typeof p === 'string') return { name: p, url: `posts/${p}` };
+                    return p;
+                });
             }
         }
     } catch (e) {
@@ -130,12 +134,12 @@ async function fetchPostsList() {
                 const items = await r.json();
                 if (Array.isArray(items)) {
                     const mdFiles = items
-                        .filter(it => it.type === 'file' && it.name.toLowerCase().endsWith('.md'))
-                        .map(it => it.name);
-                    if (mdFiles.length) {
-                        console.log(`GitHub API로 ${c.owner}/${c.repo}의 posts 폴더에서 ${mdFiles.length}개 감지`);
-                        return mdFiles.sort().reverse();
-                    }
+                            .filter(it => it.type === 'file' && it.name.toLowerCase().endsWith('.md'))
+                            .map(it => ({ name: it.name, url: it.download_url }));
+                        if (mdFiles.length) {
+                            console.log(`GitHub API로 ${c.owner}/${c.repo}의 posts 폴더에서 ${mdFiles.length}개 감지`);
+                            return mdFiles.sort((a,b) => b.name.localeCompare(a.name));
+                        }
                 }
             } catch (e) {
                 // continue to next candidate
@@ -155,10 +159,10 @@ async function fetchPostsList() {
             const names = hrefs
                 .map(h => h.replace(/^.*\//, ''))
                 .filter((v, i, a) => v && a.indexOf(v) === i);
-            if (names.length) {
-                console.log(`posts/index.html에서 ${names.length}개 감지`);
-                return names.sort().reverse();
-            }
+                if (names.length) {
+                    console.log(`posts/index.html에서 ${names.length}개 감지`);
+                    return names.map(n => ({ name: n, url: `posts/${n}` })).sort((a,b) => b.name.localeCompare(a.name));
+                }
         }
     } catch (e) {
         // ignore
@@ -169,21 +173,34 @@ async function fetchPostsList() {
 }
 
 // Fetch and parse a single post
-async function fetchPost(filename) {
+async function fetchPost(file) {
+    // file can be either a string filename or an object {name, url}
+    let name, url;
+    if (typeof file === 'string') {
+        name = file;
+        url = `posts/${file}`;
+    } else if (file && typeof file === 'object') {
+        name = file.name;
+        url = file.url || `posts/${file.name}`;
+    } else {
+        return null;
+    }
+
     try {
-        const response = await fetch(`posts/${filename}`);
+        const response = await fetch(url);
         if (!response.ok) {
-            throw new Error(`Failed to load ${filename}`);
+            throw new Error(`Failed to load ${name}`);
         }
         const content = await response.text();
         const metadata = extractMetadata(content);
-        
+
         return {
-            filename,
+            filename: name,
+            sourceUrl: url,
             ...metadata
         };
     } catch (error) {
-        console.error(`Error loading post ${filename}:`, error);
+        console.error(`Error loading post ${name}:`, error);
         return null;
     }
 }
@@ -202,7 +219,7 @@ async function displayPosts() {
         
         // Fetch all posts
         const posts = await Promise.all(
-            postFiles.map(filename => fetchPost(filename))
+            postFiles.map(f => fetchPost(f))
         );
         
         // Filter out failed loads and sort by date (newest first)
@@ -224,8 +241,9 @@ async function displayPosts() {
                 .trim()
                 .substring(0, 200) + '...';
             
+            const encodedUrl = encodeURIComponent(post.sourceUrl || `posts/${post.filename}`);
             return `
-                <article class="post-card" onclick="viewPost('${post.filename}')">
+                <article class="post-card" onclick="viewPost('${encodedUrl}')">
                     <h2>${post.title}</h2>
                     <div class="post-meta">📅 ${post.date}</div>
                     <div class="post-preview">${preview}</div>
@@ -240,20 +258,21 @@ async function displayPosts() {
 }
 
 // View a single post
-async function viewPost(filename) {
+async function viewPost(encodedUrl) {
     const container = document.getElementById('posts-container');
     container.innerHTML = '<div class="loading">포스트를 불러오는 중...</div>';
-    
+    const url = decodeURIComponent(encodedUrl);
+
     try {
-        const response = await fetch(`posts/${filename}`);
+        const response = await fetch(url);
         if (!response.ok) {
-            throw new Error(`Failed to load ${filename}`);
+            throw new Error(`Failed to load ${url}`);
         }
-        
+
         const content = await response.text();
         const metadata = extractMetadata(content);
         const htmlContent = parseMarkdown(content);
-        
+
         container.innerHTML = `
             <a href="#" class="back-link" onclick="event.preventDefault(); displayPosts();">← 목록으로</a>
             <article class="post-card">
@@ -262,7 +281,7 @@ async function viewPost(filename) {
                 <div class="post-content">${htmlContent}</div>
             </article>
         `;
-        
+
         window.scrollTo(0, 0);
     } catch (error) {
         console.error('Error viewing post:', error);
