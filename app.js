@@ -95,6 +95,24 @@ async function fetchPostsList() {
 
         const candidates = [];
 
+            // Try to discover repo from page links (helps custom domains)
+            function findRepoFromPage() {
+                try {
+                    const anchors = Array.from(document.querySelectorAll('a[href*="github.com/"]'));
+                    for (const a of anchors) {
+                        try {
+                            const url = new URL(a.href);
+                            const parts = url.pathname.split('/').filter(Boolean);
+                            // expect /owner/repo or /owner/repo/...
+                            if (parts.length >= 2) {
+                                return { owner: parts[0], repo: parts[1] };
+                            }
+                        } catch (e) {}
+                    }
+                } catch (e) {}
+                return null;
+            }
+
         // username.github.io 또는 username.github.io/repo
         if (host.endsWith('.github.io')) {
             const owner = host.split('.github.io')[0];
@@ -118,6 +136,10 @@ async function fetchPostsList() {
             const ownerGuess = host.split('.')[0];
             candidates.push({ owner: ownerGuess, repo: pathParts[0] });
         }
+
+        // Also try to find a GitHub repo link in the current page (helps custom domains)
+        const pageRepo = findRepoFromPage();
+        if (pageRepo) candidates.push(pageRepo);
 
         // De-duplicate
         const uniq = [];
