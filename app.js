@@ -95,7 +95,18 @@ async function fetchPostsList() {
 
         const candidates = [];
 
-            // Try to discover repo from page links (helps custom domains)
+            // 0) 메타 태그 우선: <meta name="parasblog-repo" content="owner/repo">
+            try {
+                const meta = document.querySelector('meta[name="parasblog-repo"]');
+                if (meta && meta.content) {
+                    const parts = meta.content.trim().split('/').map(s => s.trim()).filter(Boolean);
+                    if (parts.length === 2) {
+                        candidates.push({ owner: parts[0], repo: parts[1] });
+                    }
+                }
+            } catch (e) {}
+
+            // Try to discover repo from page links (helps custom domains) but validate link text/patterns
             function findRepoFromPage() {
                 try {
                     const anchors = Array.from(document.querySelectorAll('a[href*="github.com/"]'));
@@ -105,7 +116,13 @@ async function fetchPostsList() {
                             const parts = url.pathname.split('/').filter(Boolean);
                             // expect /owner/repo or /owner/repo/...
                             if (parts.length >= 2) {
-                                return { owner: parts[0], repo: parts[1] };
+                                // validate by link text or URL pattern to reduce false positives
+                                const text = (a.textContent || '').toLowerCase();
+                                const href = a.href.toLowerCase();
+                                const looksLikeSourceLink = /(repo|source|github|source code|view source)\b/.test(text) || href.includes('/blob/') || href.includes('/tree/') || href.endsWith(`/${parts[0]}/${parts[1]}`);
+                                if (looksLikeSourceLink) {
+                                    return { owner: parts[0], repo: parts[1] };
+                                }
                             }
                         } catch (e) {}
                     }
