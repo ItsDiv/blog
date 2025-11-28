@@ -156,7 +156,7 @@ async function fetchPostsList() {
                 const items = await r.json();
                 if (Array.isArray(items)) {
                     const mdFiles = items
-                            .filter(it => it.type === 'file' && it.name.toLowerCase().endsWith('.md'))
+                            .filter(it => it.type === 'file' && it.name.toLowerCase().endsWith('.parasblog'))
                             .map(it => ({ name: it.name, url: it.download_url }));
                         if (mdFiles.length) {
                             console.log(`GitHub API로 ${c.owner}/${c.repo}의 posts 폴더에서 ${mdFiles.length}개 감지`);
@@ -176,8 +176,8 @@ async function fetchPostsList() {
         const resp = await fetch('posts/');
         if (resp.ok) {
             const text = await resp.text();
-            // find hrefs ending with .md
-            const hrefs = Array.from(text.matchAll(/href\s*=\s*"([^"']+\.md)"/gi), m => m[1]);
+            // find hrefs ending with .parasblog
+            const hrefs = Array.from(text.matchAll(/href\s*=\s*"([^"']+\.parasblog)"/gi), m => m[1]);
             const names = hrefs
                 .map(h => h.replace(/^.*\//, ''))
                 .filter((v, i, a) => v && a.indexOf(v) === i);
